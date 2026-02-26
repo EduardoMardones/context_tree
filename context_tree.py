@@ -19,6 +19,7 @@ ctk.set_default_color_theme("blue")
 OUTPUT_DIR = Path.home() / "textos_intranet"
 OUTPUT_DIR.mkdir(exist_ok=True)
 BLACKLIST_FILE = OUTPUT_DIR / ".blacklist.json"
+CONFIG_FILE    = OUTPUT_DIR / ".config.json"
 
 IGNORE_EXTENSIONS = {".pyc", ".zip", ".png", ".jpg", ".jpeg", ".svg",
                      ".ico", ".woff", ".woff2", ".ttf", ".map", ".lock"}
@@ -44,9 +45,23 @@ C = {
 }
 
 
-# ─── Persistencia de lista negra ─────────────────────────────────────────────
+# ─── Config persistida ───────────────────────────────────────────────────────
 
-def load_blacklist() -> set[str]:
+def load_config() -> dict:
+    try:
+        if CONFIG_FILE.exists():
+            return json.loads(CONFIG_FILE.read_text())
+    except Exception:
+        pass
+    return {}
+
+def save_config(cfg: dict):
+    try:
+        CONFIG_FILE.write_text(json.dumps(cfg, indent=2))
+    except Exception:
+        pass
+
+def load_blacklist() -> set:
     try:
         if BLACKLIST_FILE.exists():
             data = json.loads(BLACKLIST_FILE.read_text())
@@ -55,12 +70,317 @@ def load_blacklist() -> set[str]:
         pass
     return set()
 
-
-def save_blacklist(bl: set[str]):
+def save_blacklist(bl: set):
     try:
         BLACKLIST_FILE.write_text(json.dumps({"paths": sorted(bl)}, indent=2))
     except Exception:
         pass
+
+
+# ─── Dialogo de bienvenida / seleccion de ruta ──────────────────────────────
+
+# ─── FolderPicker: selector de carpeta moderno y reutilizable ───────────────
+
+class FolderPicker:
+    """
+    Selector de carpeta moderno con customtkinter.
+    Puede usarse como ventana independiente (master=None) o como
+    modal sobre una ventana existente (master=ctk.CTk).
+
+    Parametros:
+        master      : ventana padre (None = ventana independiente al inicio)
+        title       : titulo de la ventana
+        subtitle    : descripcion bajo el titulo
+        ok_label    : texto del boton de confirmacion
+        initial_dir : carpeta inicial al abrir
+        show_save_checkbox : mostrar checkbox "guardar como predeterminada"
+    """
+    def __init__(self, master=None, title="Seleccionar carpeta",
+                 subtitle="Elige una carpeta y presiona Confirmar",
+                 ok_label="Confirmar", initial_dir=None,
+                 show_save_checkbox=False):
+        self.result: str | None = None
+        self.save_as_default = False
+        self._current = Path(initial_dir) if initial_dir else Path.home()
+        self._master = master
+        self._show_save = show_save_checkbox
+        self._title = title
+        self._subtitle = subtitle
+        self._ok_label = ok_label
+        self._build()
+
+    def _build(self):
+        if self._master is None:
+            # Ventana independiente (inicio de la app)
+            self._win = ctk.CTk()
+            self._win.title(self._title)
+        else:
+            # Modal sobre la ventana principal
+            self._win = ctk.CTkToplevel(self._master)
+            self._win.title(self._title)
+            self._win.after(100, self._safe_grab)
+
+        self._win.geometry("820x560")
+        self._win.minsize(640, 440)
+        self._win.configure(fg_color=C["bg_dark"])
+
+        # Centrar en pantalla
+        self._win.update_idletasks()
+        sw = self._win.winfo_screenwidth()
+        sh = self._win.winfo_screenheight()
+        x = (sw - 820) // 2
+        y = (sh - 560) // 2
+        self._win.geometry(f"820x560+{x}+{y}")
+
+        self._win.grid_columnconfigure(0, weight=1)
+        self._win.grid_rowconfigure(1, weight=1)
+
+        # ── Header ──────────────────────────────────────────
+        hdr = ctk.CTkFrame(self._win, fg_color=C["bg_panel"], corner_radius=0)
+        hdr.grid(row=0, column=0, sticky="ew")
+
+        ctk.CTkLabel(hdr, text="Context Tree",
+                     font=ctk.CTkFont(size=22, weight="bold"),
+                     text_color=C["accent"]).grid(
+            row=0, column=0, padx=24, pady=(18, 2), sticky="w")
+        ctk.CTkLabel(hdr, text=self._subtitle,
+                     font=ctk.CTkFont(size=12),
+                     text_color=C["text_muted"]).grid(
+            row=1, column=0, padx=24, pady=(0, 16), sticky="w")
+
+        # ── Barra de ruta + navegacion ───────────────────────
+        nav = ctk.CTkFrame(self._win, fg_color=C["bg_panel"], corner_radius=0)
+        nav.grid(row=1, column=0, sticky="nsew")
+        nav.grid_rowconfigure(1, weight=1)
+        nav.grid_columnconfigure(0, weight=1)
+
+        path_bar = ctk.CTkFrame(nav, fg_color=C["bg_item"], corner_radius=8)
+        path_bar.grid(row=0, column=0, sticky="ew", padx=16, pady=(12, 6))
+        path_bar.grid_columnconfigure(0, weight=1)
+
+        self._path_var = tk.StringVar(value=str(self._current))
+        path_entry = ctk.CTkEntry(path_bar, textvariable=self._path_var,
+                                   font=ctk.CTkFont(family="Consolas", size=12),
+                                   fg_color="transparent", border_width=0, height=36)
+        path_entry.grid(row=0, column=0, sticky="ew", padx=10)
+        path_entry.bind("<Return>", self._on_path_entry)
+
+        ctk.CTkButton(path_bar, text="Ir", width=48, height=32,
+                      font=ctk.CTkFont(size=11),
+                      command=self._on_path_entry).grid(row=0, column=1, padx=(0, 6))
+
+        # ── Paneles: accesos rapidos | explorador ────────────
+        panels = ctk.CTkFrame(nav, fg_color="transparent")
+        panels.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 6))
+        panels.grid_columnconfigure(1, weight=1)
+        panels.grid_rowconfigure(0, weight=1)
+
+        # Accesos rapidos
+        fav = ctk.CTkFrame(panels, fg_color=C["bg_dark"], corner_radius=10, width=160)
+        fav.grid(row=0, column=0, sticky="ns", padx=(0, 8))
+        fav.grid_propagate(False)
+
+        ctk.CTkLabel(fav, text="Accesos rapidos",
+                     font=ctk.CTkFont(size=11, weight="bold"),
+                     text_color=C["text_dim"]).pack(padx=12, pady=(12, 6), anchor="w")
+
+        shortcuts = [
+            ("Home",        Path.home()),
+            ("Documentos",  Path.home() / "Documents"),
+            ("Documentos",  Path.home() / "Documentos"),
+            ("Descargas",   Path.home() / "Downloads"),
+            ("Descargas",   Path.home() / "Descargas"),
+            ("Escritorio",  Path.home() / "Desktop"),
+            ("Escritorio",  Path.home() / "Escritorio"),
+        ]
+        seen = set()
+        for label, path in shortcuts:
+            if path.exists() and label not in seen:
+                seen.add(label)
+                ctk.CTkButton(fav, text=label, height=30, anchor="w",
+                              font=ctk.CTkFont(size=11),
+                              fg_color="transparent", hover_color=C["bg_hover"],
+                              text_color=C["text_dim"],
+                              command=lambda p=path: self._navigate(p)
+                              ).pack(fill="x", padx=6, pady=1)
+
+        # Explorador
+        exp = ctk.CTkFrame(panels, fg_color=C["bg_dark"], corner_radius=10)
+        exp.grid(row=0, column=1, sticky="nsew")
+        exp.grid_rowconfigure(0, weight=1)
+        exp.grid_columnconfigure(0, weight=1)
+
+        self._tv = ttk.Treeview(exp, style="WD.Treeview",
+                                 show="tree", selectmode="browse")
+        vsb = ctk.CTkScrollbar(exp, command=self._tv.yview)
+        self._tv.configure(yscrollcommand=vsb.set)
+        vsb.grid(row=0, column=1, sticky="ns")
+        self._tv.grid(row=0, column=0, sticky="nsew", padx=(4, 0), pady=4)
+        self._tv.bind("<Double-Button-1>", self._on_tv_double)
+        self._tv.bind("<Return>",          self._on_tv_enter)
+        self._tv.bind("<<TreeviewSelect>>", self._on_tv_select)
+        self._populate_tv(self._current)
+
+        # ── Footer ──────────────────────────────────────────
+        footer = ctk.CTkFrame(self._win, fg_color=C["bg_panel"], corner_radius=0)
+        footer.grid(row=2, column=0, sticky="ew")
+        footer.grid_columnconfigure(0, weight=1)
+
+        if self._show_save:
+            self._save_var = tk.BooleanVar(value=True)
+            ctk.CTkCheckBox(footer, text="Guardar como ruta predeterminada",
+                            variable=self._save_var,
+                            font=ctk.CTkFont(size=11),
+                            text_color=C["text_dim"],
+                            checkmark_color=C["accent"],
+                            fg_color=C["accent"],
+                            hover_color=C["bg_select"]).grid(
+                row=0, column=0, padx=20, pady=14, sticky="w")
+        else:
+            self._save_var = tk.BooleanVar(value=False)
+
+        self._sel_lbl = ctk.CTkLabel(footer,
+                                      text="Carpeta actual: " + str(self._current),
+                                      font=ctk.CTkFont(family="Consolas", size=10),
+                                      text_color=C["text_muted"])
+        self._sel_lbl.grid(row=0, column=1, padx=12, sticky="e")
+
+        btn_frame = ctk.CTkFrame(footer, fg_color="transparent")
+        btn_frame.grid(row=0, column=2, padx=16, pady=10)
+
+        ctk.CTkButton(btn_frame, text="Cancelar", width=100, height=36,
+                      fg_color=C["bg_item"], hover_color=C["bg_hover"],
+                      text_color=C["text_dim"],
+                      command=self._cancel).pack(side="left", padx=4)
+        ctk.CTkButton(btn_frame, text=self._ok_label,
+                      width=140, height=36,
+                      font=ctk.CTkFont(size=12, weight="bold"),
+                      command=self._confirm).pack(side="left", padx=4)
+
+        self._win.bind("<Escape>", lambda e: self._cancel())
+        self._win.protocol("WM_DELETE_WINDOW", self._cancel)
+
+    def _safe_grab(self):
+        try:
+            self._win.grab_set()
+        except Exception:
+            pass
+
+    def _populate_tv(self, path: Path):
+        self._tv.delete(*self._tv.get_children())
+        if path != path.parent:
+            iid = self._tv.insert("", "end", text="  [..] subir un nivel",
+                                   values=(str(path.parent), "up"))
+            self._tv.tag_configure("up", foreground=C["text_muted"])
+            self._tv.item(iid, tags=("up",))
+        try:
+            entries = sorted(path.iterdir(),
+                             key=lambda x: (x.is_file(), x.name.lower()))
+            for entry in entries:
+                if entry.name.startswith("."):
+                    continue
+                if entry.is_dir():
+                    self._tv.insert("", "end",
+                                     text=f"  [+] {entry.name}",
+                                     values=(str(entry), "dir"))
+        except PermissionError:
+            pass
+        self._path_var.set(str(path))
+        self._current = path
+        self._sel_lbl.configure(
+            text="Carpeta actual: " + str(path),
+            text_color=C["text_muted"])
+
+    def _navigate(self, path: Path):
+        if path.exists() and path.is_dir():
+            self._populate_tv(path)
+
+    def _on_tv_double(self, _):
+        sel = self._tv.selection()
+        if not sel:
+            return
+        vals = self._tv.item(sel[0], "values")
+        if vals:
+            self._navigate(Path(vals[0]))
+
+    def _on_tv_enter(self, _):
+        self._on_tv_double(None)
+
+    def _on_tv_select(self, _):
+        sel = self._tv.selection()
+        if not sel:
+            return
+        vals = self._tv.item(sel[0], "values")
+        if vals and vals[1] == "dir":
+            p = Path(vals[0])
+            self._sel_lbl.configure(
+                text="Seleccionado: " + str(p),
+                text_color=C["accent2"])
+
+    def _on_path_entry(self, _=None):
+        p = Path(self._path_var.get().strip())
+        if p.exists() and p.is_dir():
+            self._navigate(p)
+        else:
+            self._path_var.set(str(self._current))
+
+    def _confirm(self):
+        sel = self._tv.selection()
+        chosen = None
+        if sel:
+            vals = self._tv.item(sel[0], "values")
+            if vals and vals[1] == "dir":
+                chosen = Path(vals[0])
+        if chosen is None:
+            chosen = self._current
+        self.result = str(chosen)
+        self.save_as_default = self._save_var.get()
+        self._win.destroy()
+
+    def _cancel(self):
+        self.result = None
+        self._win.destroy()
+
+    def show(self) -> tuple:
+        """Bloquea hasta que el usuario confirma o cancela."""
+        if self._master is None:
+            self._win.mainloop()          # ventana independiente
+        else:
+            self._master.wait_window(self._win)  # modal
+        return self.result, self.save_as_default
+
+
+class WelcomeDialog(FolderPicker):
+    """Alias para compatibilidad -- se usa al inicio sin ventana padre."""
+    def __init__(self):
+        super().__init__(
+            master=None,
+            title="Context Tree -- Selecciona tu proyecto",
+            subtitle="Selecciona la carpeta raiz de tu proyecto para comenzar",
+            ok_label="Abrir proyecto",
+            show_save_checkbox=True,
+        )
+
+def ask_initial_path() -> str | None:
+    cfg = load_config()
+    default_path = cfg.get("default_root", "")
+
+    # Si hay ruta guardada y existe, usarla directamente
+    if default_path and Path(default_path).exists():
+        return default_path
+
+    # Mostrar dialogo moderno personalizado
+    dlg = WelcomeDialog()
+    chosen, save = dlg.show()
+
+    if not chosen:
+        return None
+
+    if save:
+        cfg["default_root"] = chosen
+        save_config(cfg)
+
+    return chosen
 
 
 # ─── Utilidades ─────────────────────────────────────────────────────────────
@@ -71,13 +391,12 @@ def should_ignore(name: str, is_dir: bool) -> bool:
     return Path(name).suffix.lower() in IGNORE_EXTENSIONS or name.startswith(".")
 
 
-def collect_files(path: Path, blacklist: set[str] = None) -> list[Path]:
+def collect_files(path: Path, blacklist: set = None) -> list:
     bl = blacklist or set()
     if path.is_file():
         return [] if str(path) in bl else [path]
     files = []
     for root, dirs, filenames in os.walk(path):
-        # Filtrar dirs ignorados y en lista negra
         dirs[:] = [
             d for d in sorted(dirs)
             if not should_ignore(d, True)
@@ -91,7 +410,7 @@ def collect_files(path: Path, blacklist: set[str] = None) -> list[Path]:
     return files
 
 
-def generate_content(paths: list[Path], blacklist: set[str] = None) -> tuple[str, list[Path]]:
+def generate_content(paths: list, blacklist: set = None) -> tuple:
     all_files = []
     for p in paths:
         all_files.extend(collect_files(p, blacklist))
@@ -111,7 +430,7 @@ def generate_content(paths: list[Path], blacklist: set[str] = None) -> tuple[str
     return "\n".join(parts), unique
 
 
-def generate_bash_command(paths: list[Path], output_file: Path) -> str:
+def generate_bash_command(paths: list, output_file: Path) -> str:
     if not paths:
         return ""
     cmds = []
@@ -140,7 +459,7 @@ def file_icon(path: Path) -> str:
     }.get(path.suffix.lower(), "[txt]")
 
 
-def index_all_files(root: Path, blacklist: set[str] = None) -> list[dict]:
+def index_all_files(root: Path, blacklist: set = None) -> list:
     bl = blacklist or set()
     result = []
     for root_dir, dirs, files in os.walk(root):
@@ -149,6 +468,16 @@ def index_all_files(root: Path, blacklist: set[str] = None) -> list[dict]:
             if not should_ignore(d, True)
             and str(Path(root_dir) / d) not in bl
         ]
+        # Indexar carpetas (para poder buscarlas y seleccionarlas enteras)
+        for d in dirs:
+            full = Path(root_dir) / d
+            if str(full) not in bl:
+                try:
+                    rel = str(full.relative_to(root))
+                except ValueError:
+                    rel = str(full)
+                result.append({"path": full, "name": d, "rel": rel, "is_dir": True})
+        # Indexar archivos
         for f in sorted(files):
             if not should_ignore(f, False):
                 full = Path(root_dir) / f
@@ -157,63 +486,50 @@ def index_all_files(root: Path, blacklist: set[str] = None) -> list[dict]:
                         rel = str(full.relative_to(root))
                     except ValueError:
                         rel = str(full)
-                    result.append({"path": full, "name": f, "rel": rel})
+                    result.append({"path": full, "name": f, "rel": rel, "is_dir": False})
     return result
 
 
-
-# ─── Setup centralizado de estilos ttk ──────────────────────────────────────
-# Se llama UNA sola vez al inicio para evitar conflictos y posibles segfaults
-
 def setup_ttk_styles():
     style = ttk.Style()
-    # Usar 'clam' si esta disponible, si no el default
     if "clam" in style.theme_names():
         style.theme_use("clam")
-
     base = dict(
         background=C["bg_dark"], foreground=C["text"],
         rowheight=26, fieldbackground=C["bg_dark"],
         borderwidth=0, font=("Consolas", 11)
     )
-    sel = [("selected", C["bg_select"])]
+    sel    = [("selected", C["bg_select"])]
     sel_fg = [("selected", "#ffffff")]
-
-    # Arbol principal
     style.configure("CT.Treeview", **base)
     style.map("CT.Treeview", background=sel, foreground=sel_fg)
-
-    # Panel de busqueda lateral
     style.configure("SP.Treeview", **{**base, "rowheight": 30, "font": ("Consolas", 10)})
     style.map("SP.Treeview", background=sel, foreground=sel_fg)
-
-    # Modal lista negra
     style.configure("BL.Treeview", **{**base,
-        "background": C["bg_panel"],
-        "fieldbackground": C["bg_panel"],
-        "foreground": C["red"],
-        "rowheight": 28})
+        "background": C["bg_panel"], "fieldbackground": C["bg_panel"],
+        "foreground": C["red"], "rowheight": 28})
     style.map("BL.Treeview",
               background=[("selected", C["red_dim"])],
               foreground=[("selected", C["red"])])
+    # Explorador de carpetas (FolderPicker)
+    style.configure("WD.Treeview", **{**base, "rowheight": 28})
+    style.map("WD.Treeview", background=sel, foreground=sel_fg)
+
 
 # ─── Command Palette ─────────────────────────────────────────────────────────
 
 class CommandPalette(tk.Toplevel):
-    def __init__(self, master, index: list[dict], on_select):
+    def __init__(self, master, index: list, on_select):
         super().__init__(master)
         self.index = index
         self.on_select = on_select
-        self.results: list[dict] = []
-
+        self.results = []
         px = master.winfo_x() + master.winfo_width() // 2
         py = master.winfo_y() + 80
         self.geometry(f"640x420+{px - 320}+{py}")
-        # overrideredirect removido -- causa crashes en algunos window managers Linux
         self.attributes("-topmost", True)
         self.resizable(False, False)
         self.configure(bg=C["border"])
-
         self._build()
         self.bind("<Escape>", lambda e: self.destroy())
         self.after(60, self.search_entry.focus_set)
@@ -221,39 +537,30 @@ class CommandPalette(tk.Toplevel):
     def _build(self):
         wrap = tk.Frame(self, bg=C["bg_panel"], padx=1, pady=1)
         wrap.pack(fill="both", expand=True)
-
         top = tk.Frame(wrap, bg=C["bg_panel"])
         top.pack(fill="x", padx=12, pady=(10, 0))
-        tk.Label(top, text="Command Palette",
-                 bg=C["bg_panel"], fg=C["text_dim"],
+        tk.Label(top, text="Command Palette", bg=C["bg_panel"], fg=C["text_dim"],
                  font=("Consolas", 10, "bold")).pack(side="left")
-        tk.Label(top, text="ESC para cerrar  .  Enter para seleccionar",
+        tk.Label(top, text="ESC cerrar  |  Enter seleccionar",
                  bg=C["bg_panel"], fg=C["text_muted"],
                  font=("Consolas", 9)).pack(side="right")
-
         tk.Frame(wrap, bg=C["border"], height=1).pack(fill="x", pady=(8, 0))
-
         ef = tk.Frame(wrap, bg=C["bg_item"])
         ef.pack(fill="x")
         tk.Label(ef, text="  >", bg=C["bg_item"], fg=C["accent"],
                  font=("Consolas", 14, "bold")).pack(side="left")
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", self._on_type)
-        self.search_entry = tk.Entry(
-            ef, textvariable=self.search_var,
-            bg=C["bg_item"], fg=C["text"],
-            insertbackground=C["accent"],
+        self.search_entry = tk.Entry(ef, textvariable=self.search_var,
+            bg=C["bg_item"], fg=C["text"], insertbackground=C["accent"],
             font=("Consolas", 13), relief="flat", bd=10)
         self.search_entry.pack(fill="x", expand=True)
         self.search_entry.bind("<Down>", self._focus_list)
         self.search_entry.bind("<Return>", self._select_first)
-
         tk.Frame(wrap, bg=C["border"], height=1).pack(fill="x")
-
         lf = tk.Frame(wrap, bg=C["bg_panel"])
         lf.pack(fill="both", expand=True, pady=4)
-        self.listbox = tk.Listbox(
-            lf, bg=C["bg_panel"], fg=C["text"],
+        self.listbox = tk.Listbox(lf, bg=C["bg_panel"], fg=C["text"],
             selectbackground=C["bg_select"], selectforeground=C["text"],
             font=("Consolas", 11), relief="flat", activestyle="none", bd=0)
         sb = tk.Scrollbar(lf, command=self.listbox.yview,
@@ -265,11 +572,10 @@ class CommandPalette(tk.Toplevel):
         self.listbox.bind("<Double-Button-1>", self._on_lb_enter)
         self.listbox.bind("<Up>", self._on_lb_up)
         self.listbox.bind("<Escape>", lambda e: self.destroy())
-
         tk.Frame(wrap, bg=C["border"], height=1).pack(fill="x")
         self.footer = tk.Label(wrap, text="Escribe para buscar...",
-                                bg=C["bg_panel"], fg=C["text_muted"],
-                                font=("Consolas", 9), anchor="w", padx=12, pady=5)
+            bg=C["bg_panel"], fg=C["text_muted"],
+            font=("Consolas", 9), anchor="w", padx=12, pady=5)
         self.footer.pack(fill="x")
 
     def _on_type(self, *_):
@@ -288,12 +594,14 @@ class CommandPalette(tk.Toplevel):
             self.listbox.itemconfig(0, fg=C["text_muted"])
             self.footer.configure(text="0 resultados")
             return
-        for it in matches:
+        for i, it in enumerate(matches):
             parent = str(Path(it["rel"]).parent)
+            is_dir = it.get("is_dir", False)
+            icon = "[+]" if is_dir else file_icon(it["path"])
             self.listbox.insert("end",
-                f"  {file_icon(it['path'])}  {it['name']:<40}  {parent}")
-        for i in range(len(matches)):
-            self.listbox.itemconfig(i, fg=C["text"])
+                f"  {icon}  {it['name']:<40}  {parent}")
+            color = C["highlight"] if is_dir else C["text"]
+            self.listbox.itemconfig(i, fg=color)
         self.footer.configure(text=f"{len(matches)} resultado(s)")
 
     def _focus_list(self, _):
@@ -327,15 +635,14 @@ class SearchPanel(ctk.CTkFrame):
     def __init__(self, master, on_select_callback, **kwargs):
         super().__init__(master, **kwargs)
         self.on_select = on_select_callback
-        self.index: list[dict] = []
-        self.results: list[dict] = []
+        self.index = []
+        self.results = []
         self._job = None
         self._build()
 
     def _build(self):
         self.grid_rowconfigure(3, weight=1)
         self.grid_columnconfigure(0, weight=1)
-
         title_row = ctk.CTkFrame(self, fg_color="transparent")
         title_row.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4))
         ctk.CTkLabel(title_row, text="Busqueda rapida",
@@ -344,14 +651,12 @@ class SearchPanel(ctk.CTkFrame):
         ctk.CTkLabel(title_row, text="busca y navega",
                      font=ctk.CTkFont(size=9),
                      text_color=C["text_muted"]).pack(side="right")
-
         ef = ctk.CTkFrame(self, fg_color=C["bg_item"], corner_radius=8)
         ef.grid(row=1, column=0, sticky="ew", padx=10, pady=4)
         ef.grid_columnconfigure(0, weight=1)
         self.sv = tk.StringVar()
         self.sv.trace_add("write", self._schedule)
-        self.entry = ctk.CTkEntry(
-            ef, textvariable=self.sv,
+        self.entry = ctk.CTkEntry(ef, textvariable=self.sv,
             placeholder_text="nombre o ruta parcial...",
             font=ctk.CTkFont(family="Consolas", size=11),
             fg_color="transparent", border_width=0, height=32)
@@ -360,17 +665,14 @@ class SearchPanel(ctk.CTkFrame):
                       fg_color="transparent", hover_color=C["bg_hover"],
                       text_color=C["text_dim"],
                       command=lambda: self.sv.set("")).grid(row=0, column=1, padx=4)
-
         self.count_lbl = ctk.CTkLabel(self, text="",
                                        font=ctk.CTkFont(size=10),
                                        text_color=C["text_muted"])
         self.count_lbl.grid(row=2, column=0, sticky="w", padx=14)
-
         lc = ctk.CTkFrame(self, fg_color=C["bg_dark"], corner_radius=8)
         lc.grid(row=3, column=0, sticky="nsew", padx=10, pady=(2, 10))
         lc.grid_rowconfigure(0, weight=1)
         lc.grid_columnconfigure(0, weight=1)
-
         self.tv = ttk.Treeview(lc, style="SP.Treeview",
                                 show="tree", selectmode="browse")
         self.tv.tag_configure("sub", foreground=C["text_muted"])
@@ -408,18 +710,23 @@ class SearchPanel(ctk.CTkFrame):
         self.results = hits
         if not hits:
             self.tv.insert("", "end",
-                            text=f'  Sin resultados para "{q}"', tags=("sub",))
+                text=f'  Sin resultados para "{q}"', tags=("sub",))
             self.count_lbl.configure(text="")
             return
         self.count_lbl.configure(
             text=f"{len(hits)} resultado{'s' if len(hits) != 1 else ''}")
+        self.tv.tag_configure("dir_result", foreground=C["highlight"])
         for it in hits:
             parent_dir = str(Path(it["rel"]).parent)
+            is_dir = it.get("is_dir", False)
+            icon = "[+]" if is_dir else file_icon(it["path"])
+            tags = ("dir_result",) if is_dir else ()
             iid = self.tv.insert("", "end",
-                                  text=f"  {file_icon(it['path'])}  {it['name']}",
-                                  values=(str(it["path"]),))
+                text=f"  {icon}  {it['name']}",
+                values=(str(it["path"]),),
+                tags=tags)
             self.tv.insert(iid, "end",
-                            text=f"     [{parent_dir}]", tags=("sub",))
+                text=f"     [{parent_dir}]", tags=("sub",))
 
     def _click(self, _):
         sel = self.tv.selection()
@@ -436,20 +743,17 @@ class SearchPanel(ctk.CTkFrame):
                     self.on_select(Path(vals[0]))
 
 
-# ─── Modal de gestion de lista negra ────────────────────────────────────────
+# ─── Modal lista negra ───────────────────────────────────────────────────────
 
 class BlacklistManager(ctk.CTkToplevel):
-    """Modal que muestra la lista negra actual y permite quitar entradas."""
-
-    def __init__(self, master, blacklist: set[str], on_save):
+    def __init__(self, master, blacklist: set, on_save):
         super().__init__(master)
-        self.blacklist = set(blacklist)   # copia local
+        self.blacklist = set(blacklist)
         self.on_save = on_save
         self.title("Lista negra")
         self.geometry("680x500")
         self.configure(fg_color=C["bg_dark"])
         self._build()
-        # grab_set despues de que la ventana sea visible para evitar TclError
         self.after(100, self._safe_grab)
 
     def _safe_grab(self):
@@ -461,8 +765,6 @@ class BlacklistManager(ctk.CTkToplevel):
     def _build(self):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
-
-        # Header
         hdr = ctk.CTkFrame(self, fg_color=C["bg_panel"], corner_radius=10)
         hdr.grid(row=0, column=0, sticky="ew", padx=14, pady=(14, 6))
         ctk.CTkLabel(hdr, text="[x] Rutas en lista negra",
@@ -472,51 +774,34 @@ class BlacklistManager(ctk.CTkToplevel):
                      text="Estas rutas no aparecen en el arbol ni en el contexto generado",
                      font=ctk.CTkFont(size=10),
                      text_color=C["text_muted"]).pack(side="left", padx=4)
-
-        # Lista
         lc = ctk.CTkFrame(self, fg_color=C["bg_panel"], corner_radius=10)
         lc.grid(row=1, column=0, sticky="nsew", padx=14, pady=6)
         lc.grid_rowconfigure(0, weight=1)
         lc.grid_columnconfigure(0, weight=1)
-
         self.tv = ttk.Treeview(lc, style="BL.Treeview",
                                 show="tree", selectmode="extended")
         sb = ctk.CTkScrollbar(lc, command=self.tv.yview)
         self.tv.configure(yscrollcommand=sb.set)
         sb.grid(row=0, column=1, sticky="ns")
         self.tv.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
-
         self._refresh_list()
-
-        # Acciones
         foot = ctk.CTkFrame(self, fg_color="transparent")
         foot.grid(row=2, column=0, sticky="ew", padx=14, pady=(4, 14))
-
-        ctk.CTkButton(
-            foot, text="Quitar seleccionados",
-            height=36, font=ctk.CTkFont(size=12),
-            fg_color="#1a3a1a", hover_color="#2d5c47",
-            command=self._remove_selected
-        ).pack(side="left", padx=4)
-
-        ctk.CTkButton(
-            foot, text="Limpiar todo",
-            height=36, font=ctk.CTkFont(size=12),
-            fg_color=C["red_dim"], hover_color=C["red_hover"],
-            text_color=C["red"],
-            command=self._clear_all
-        ).pack(side="left", padx=4)
-
-        ctk.CTkButton(
-            foot, text="Cerrar",
-            height=36, font=ctk.CTkFont(size=12),
-            fg_color=C["bg_item"], hover_color=C["bg_hover"],
-            text_color=C["text_dim"],
-            command=self.destroy
-        ).pack(side="right", padx=4)
-
-        self.count_lbl = ctk.CTkLabel(
-            foot, text="",
+        ctk.CTkButton(foot, text="Quitar seleccionados",
+                      height=36, font=ctk.CTkFont(size=12),
+                      fg_color="#1a3a1a", hover_color="#2d5c47",
+                      command=self._remove_selected).pack(side="left", padx=4)
+        ctk.CTkButton(foot, text="Limpiar todo",
+                      height=36, font=ctk.CTkFont(size=12),
+                      fg_color=C["red_dim"], hover_color=C["red_hover"],
+                      text_color=C["red"],
+                      command=self._clear_all).pack(side="left", padx=4)
+        ctk.CTkButton(foot, text="Cerrar",
+                      height=36, font=ctk.CTkFont(size=12),
+                      fg_color=C["bg_item"], hover_color=C["bg_hover"],
+                      text_color=C["text_dim"],
+                      command=self.destroy).pack(side="right", padx=4)
+        self.count_lbl = ctk.CTkLabel(foot, text="",
             font=ctk.CTkFont(size=11), text_color=C["text_muted"])
         self.count_lbl.pack(side="right", padx=12)
         self._update_count()
@@ -527,12 +812,11 @@ class BlacklistManager(ctk.CTkToplevel):
             p = Path(path_str)
             icon = "[+]" if p.is_dir() else file_icon(p)
             self.tv.insert("", "end",
-                            text=f"  [x] {icon}  {path_str}",
-                            values=(path_str,))
+                text=f"  [x] {icon}  {path_str}", values=(path_str,))
         if not self.blacklist:
             self.tv.insert("", "end",
-                            text="  Lista negra vacia -- no hay nada bloqueado",
-                            tags=("empty",))
+                text="  Lista negra vacia -- no hay nada bloqueado",
+                tags=("empty",))
             self.tv.tag_configure("empty", foreground=C["text_muted"])
 
     def _update_count(self):
@@ -558,8 +842,7 @@ class BlacklistManager(ctk.CTkToplevel):
     def _clear_all(self):
         if not self.blacklist:
             return
-        if messagebox.askyesno("Confirmar",
-                                "Limpiar toda la lista negra?",
+        if messagebox.askyesno("Confirmar", "Limpiar toda la lista negra?",
                                 parent=self):
             self.blacklist.clear()
             save_blacklist(self.blacklist)
@@ -571,35 +854,30 @@ class BlacklistManager(ctk.CTkToplevel):
 # ─── CheckableTree ───────────────────────────────────────────────────────────
 
 class CheckableTree(ctk.CTkFrame):
-    def __init__(self, master, root_path: Path,
-                 blacklist: set[str] = None, **kwargs):
+    def __init__(self, master, root_path: Path, blacklist: set = None, **kwargs):
         super().__init__(master, **kwargs)
         self.root_path = root_path
-        self.blacklist: set[str] = blacklist or set()
-        self.checked_items: dict[str, tk.BooleanVar] = {}
-        self.item_paths: dict[str, Path] = {}
-        self.path_to_item: dict[Path, str] = {}
-        self._highlighted: str | None = None
-        self._context_menu: tk.Menu | None = None
-        self._ctx_item: str | None = None   # item bajo el cursor en el momento del clic derecho
-
+        self.blacklist = blacklist or set()
+        self.checked_items = {}
+        self.item_paths = {}
+        self.path_to_item = {}
+        self._highlighted = None
+        self._context_menu = None
+        self._ctx_item = None
         self._build_ui()
         self._populate(root_path)
 
-    def set_blacklist(self, bl: set[str]):
+    def set_blacklist(self, bl: set):
         self.blacklist = bl
         self._populate(self.root_path)
 
     def _build_ui(self):
         c = ctk.CTkFrame(self, fg_color=C["bg_dark"], corner_radius=8)
         c.pack(fill="both", expand=True, padx=2, pady=2)
-
         self.tree = ttk.Treeview(c, style="CT.Treeview",
                                   show="tree", selectmode="none")
-        self.tree.tag_configure("hl",
-                                 background="#2d2200", foreground=C["highlight"])
+        self.tree.tag_configure("hl", background="#2d2200", foreground=C["highlight"])
         self.tree.tag_configure("chk", foreground=C["accent2"])
-
         vsb = ctk.CTkScrollbar(c, command=self.tree.yview)
         hsb = ctk.CTkScrollbar(c, orientation="horizontal",
                                 command=self.tree.xview)
@@ -607,21 +885,15 @@ class CheckableTree(ctk.CTkFrame):
         vsb.pack(side="right", fill="y")
         hsb.pack(side="bottom", fill="x")
         self.tree.pack(fill="both", expand=True)
-
         self.tree.bind("<Button-1>", self._on_click)
         self.tree.bind("<Button-3>", self._on_right_click)
-
-        # Menu contextual (sin emojis -- causan segfault con LC_ALL=POSIX en Linux)
-        self._context_menu = tk.Menu(
-            self.tree, tearoff=0,
+        self._context_menu = tk.Menu(self.tree, tearoff=0,
             bg=C["bg_panel"], fg=C["red"],
             activebackground=C["red_dim"], activeforeground="#ffffff",
-            font=("Consolas", 11), relief="flat", bd=1
-        )
+            font=("Consolas", 11), relief="flat", bd=1)
         self._context_menu.add_command(
             label="  [BLOQUEAR]  Agregar a lista negra",
-            command=self._ctx_add_to_blacklist
-        )
+            command=self._ctx_add_to_blacklist)
 
     def _populate(self, path: Path):
         self.tree.delete(*self.tree.get_children())
@@ -632,7 +904,6 @@ class CheckableTree(ctk.CTkFrame):
         self._insert_node("", path, is_root=True)
 
     def _is_blacklisted(self, path: Path) -> bool:
-        """True si la ruta o algun ancestro esta en la lista negra."""
         s = str(path)
         if s in self.blacklist:
             return True
@@ -644,7 +915,6 @@ class CheckableTree(ctk.CTkFrame):
     def _insert_node(self, parent: str, path: Path, is_root=False):
         if not is_root and self._is_blacklisted(path):
             return
-
         name = path.name if not is_root else str(path)
         icon = "[+]" if path.is_dir() else file_icon(path)
         iid = self.tree.insert(parent, "end",
@@ -653,7 +923,6 @@ class CheckableTree(ctk.CTkFrame):
         self.checked_items[iid] = tk.BooleanVar(value=False)
         self.item_paths[iid] = path
         self.path_to_item[path.resolve()] = iid
-
         if path.is_dir():
             try:
                 children = sorted(path.iterdir(),
@@ -663,8 +932,6 @@ class CheckableTree(ctk.CTkFrame):
                         self._insert_node(iid, child)
             except PermissionError:
                 pass
-
-    # ── Click izquierdo ──────────────────────────────────────────────
 
     def _on_click(self, e):
         element = self.tree.identify_element(e.x, e.y)
@@ -676,14 +943,11 @@ class CheckableTree(ctk.CTkFrame):
         if item and item in self.checked_items:
             self._toggle(item)
 
-    # ── Click derecho -> menu contextual ─────────────────────────────
-
     def _on_right_click(self, e):
         item = self.tree.identify_row(e.y)
         if not item or item not in self.item_paths:
             return
         self._ctx_item = item
-        # Seleccionar visualmente el item
         self.tree.selection_set(item)
         try:
             self._context_menu.tk_popup(e.x_root, e.y_root)
@@ -696,18 +960,13 @@ class CheckableTree(ctk.CTkFrame):
         path = self.item_paths[self._ctx_item]
         self.blacklist.add(str(path))
         save_blacklist(self.blacklist)
-        # Notificar a la app para que actualice el badge del boton
         self.event_generate("<<BlacklistChanged>>")
-        # Quitar el nodo del arbol
         self.tree.delete(self._ctx_item)
-        # Limpiar referencias
         del self.checked_items[self._ctx_item]
         del self.item_paths[self._ctx_item]
         if path.resolve() in self.path_to_item:
             del self.path_to_item[path.resolve()]
         self._ctx_item = None
-
-    # ── Toggle / redraw ─────────────────────────────────────────────
 
     def _toggle(self, iid: str, state: bool = None):
         var = self.checked_items[iid]
@@ -754,7 +1013,7 @@ class CheckableTree(ctk.CTkFrame):
         self.tree.selection_set(iid)
         return True
 
-    def get_selected_paths(self) -> list[Path]:
+    def get_selected_paths(self) -> list:
         selected = [p for iid, p in self.item_paths.items()
                     if self.checked_items[iid].get()]
         result = []
@@ -778,20 +1037,21 @@ class CheckableTree(ctk.CTkFrame):
 # ─── App principal ───────────────────────────────────────────────────────────
 
 class ContextTreeApp(ctk.CTk):
-    def __init__(self):
+    def __init__(self, initial_root: str):
         super().__init__()
         self.title("Context Tree  .  Generador de contexto IA")
         self.geometry("1380x820")
         self.minsize(1000, 640)
         self.configure(fg_color=C["bg_dark"])
-        self._file_index: list[dict] = []
-        self.blacklist: set[str] = load_blacklist()
+        self._file_index = []
+        self.blacklist = load_blacklist()
+        self._cfg = load_config()
         setup_ttk_styles()
-        self._build_ui()
+        self._build_ui(initial_root)
         self.bind("<Control-p>", self._open_palette)
         self.bind("<Control-P>", self._open_palette)
 
-    def _build_ui(self):
+    def _build_ui(self, initial_root: str):
         self.grid_columnconfigure(0, weight=5)
         self.grid_columnconfigure(1, weight=3)
         self.grid_columnconfigure(2, weight=4)
@@ -808,18 +1068,24 @@ class ContextTreeApp(ctk.CTk):
         ctk.CTkLabel(h, text="Proyecto",
                      font=ctk.CTkFont(size=14, weight="bold"),
                      text_color=C["text"]).pack(side="left")
+        # Boton config (ruta predeterminada)
+        ctk.CTkButton(h, text="[config]", width=70, height=22,
+                      font=ctk.CTkFont(size=10),
+                      fg_color=C["bg_item"], hover_color=C["bg_hover"],
+                      text_color=C["text_muted"],
+                      command=self._open_config).pack(side="right", padx=4)
         ctk.CTkLabel(h, text="Ctrl+P",
                      font=ctk.CTkFont(size=9),
                      text_color=C["text_muted"],
                      fg_color=C["bg_item"],
-                     corner_radius=4).pack(side="right")
+                     corner_radius=4).pack(side="right", padx=4)
 
         pf = ctk.CTkFrame(tp, fg_color=C["bg_item"], corner_radius=6)
         pf.grid(row=1, column=0, sticky="ew", padx=10, pady=4)
         pf.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(pf, text=">", font=ctk.CTkFont(size=13)).grid(
             row=0, column=0, padx=8)
-        self.root_var = tk.StringVar(value=str(Path.home() / "workspace"))
+        self.root_var = tk.StringVar(value=initial_root)
         ctk.CTkEntry(pf, textvariable=self.root_var,
                      font=ctk.CTkFont(family="Consolas", size=11),
                      fg_color="transparent", border_width=0,
@@ -832,33 +1098,25 @@ class ContextTreeApp(ctk.CTk):
                       font=ctk.CTkFont(size=11),
                       command=self._reload).grid(row=0, column=3, padx=6, pady=4)
 
-        self.tree_w = CheckableTree(
-            tp, Path(self.root_var.get()),
-            blacklist=self.blacklist,
-            fg_color="transparent")
+        self.tree_w = CheckableTree(tp, Path(initial_root),
+                                     blacklist=self.blacklist,
+                                     fg_color="transparent")
         self.tree_w.grid(row=2, column=0, sticky="nsew", padx=6, pady=4)
-        # Escuchar cuando el arbol cambia la lista negra por click derecho
         self.tree_w.bind("<<BlacklistChanged>>", self._on_blacklist_changed)
 
-        # Footer arbol
         foot = ctk.CTkFrame(tp, fg_color="transparent")
         foot.grid(row=3, column=0, sticky="ew", padx=8, pady=(4, 10))
-
         ctk.CTkButton(foot, text="Limpiar seleccion",
                       height=28, width=150,
                       fg_color=C["bg_item"], hover_color=C["bg_hover"],
                       font=ctk.CTkFont(size=11), text_color=C["text_dim"],
                       command=self.tree_w.clear_selection).pack(side="left", padx=4)
-
-        # Boton lista negra con badge de conteo
-        self.bl_btn = ctk.CTkButton(
-            foot, text=self._bl_label(),
-            height=28, width=130,
-            fg_color=C["red_dim"], hover_color=C["red_hover"],
-            font=ctk.CTkFont(size=11), text_color=C["red"],
-            command=self._open_blacklist_manager)
+        self.bl_btn = ctk.CTkButton(foot, text=self._bl_label(),
+                      height=28, width=130,
+                      fg_color=C["red_dim"], hover_color=C["red_hover"],
+                      font=ctk.CTkFont(size=11), text_color=C["red"],
+                      command=self._open_blacklist_manager)
         self.bl_btn.pack(side="left", padx=4)
-
         self.sel_lbl = ctk.CTkLabel(foot, text="0 seleccionados",
                                      font=ctk.CTkFont(size=11),
                                      text_color=C["text_muted"])
@@ -911,11 +1169,10 @@ class ContextTreeApp(ctk.CTk):
 
         actions = ctk.CTkFrame(rp, fg_color="transparent")
         actions.grid(row=2, column=0, sticky="ew", padx=10, pady=6)
-        self.gen_btn = ctk.CTkButton(
-            actions, text="Generar .txt",
-            height=38, font=ctk.CTkFont(size=12, weight="bold"),
-            fg_color="#0d3b7a", hover_color="#1a5fa8",
-            command=self._generate)
+        self.gen_btn = ctk.CTkButton(actions, text="Generar .txt",
+                      height=38, font=ctk.CTkFont(size=12, weight="bold"),
+                      fg_color="#0d3b7a", hover_color="#1a5fa8",
+                      command=self._generate)
         self.gen_btn.pack(side="left", padx=3, expand=True, fill="x")
         ctk.CTkButton(actions, text="Copiar",
                       height=38, font=ctk.CTkFont(size=12),
@@ -934,10 +1191,10 @@ class ContextTreeApp(ctk.CTk):
                                        font=ctk.CTkFont(size=10),
                                        text_color=C["text_muted"])
         self.token_lbl.grid(row=0, column=0, sticky="w", padx=4, pady=2)
-        self.preview = ctk.CTkTextbox(
-            pw, font=ctk.CTkFont(family="Consolas", size=10),
-            fg_color=C["bg_dark"], text_color="#d1d5db",
-            wrap="none", corner_radius=8)
+        self.preview = ctk.CTkTextbox(pw,
+                          font=ctk.CTkFont(family="Consolas", size=10),
+                          fg_color=C["bg_dark"], text_color="#d1d5db",
+                          wrap="none", corner_radius=8)
         self.preview.grid(row=1, column=0, sticky="nsew")
 
         self.status = tk.StringVar(
@@ -949,6 +1206,91 @@ class ContextTreeApp(ctk.CTk):
 
         self._rebuild_index()
 
+    # ── Config de ruta predeterminada ────────────────────────────────
+
+    def _open_config(self):
+        """Modal simple para gestionar la ruta predeterminada."""
+        win = ctk.CTkToplevel(self)
+        win.title("Configuracion")
+        win.geometry("560x260")
+        win.configure(fg_color=C["bg_dark"])
+        win.after(100, lambda: self._safe_grab_win(win))
+
+        ctk.CTkLabel(win, text="Ruta predeterminada del proyecto",
+                     font=ctk.CTkFont(size=13, weight="bold"),
+                     text_color=C["text"]).pack(padx=16, pady=(16, 4), anchor="w")
+        ctk.CTkLabel(win,
+                     text="Si esta configurada, la app abrira directamente\n"
+                          "esa carpeta al iniciar sin preguntar.",
+                     font=ctk.CTkFont(size=11),
+                     text_color=C["text_muted"],
+                     justify="left").pack(padx=16, anchor="w")
+
+        cur = self._cfg.get("default_root", "")
+        cur_lbl = ctk.CTkLabel(win,
+                                text=f"Actual: {cur if cur else '(ninguna)'}",
+                                font=ctk.CTkFont(family="Consolas", size=10),
+                                text_color=C["accent"] if cur else C["text_muted"],
+                                wraplength=500)
+        cur_lbl.pack(padx=16, pady=(8, 4), anchor="w")
+
+        btn_frame = ctk.CTkFrame(win, fg_color="transparent")
+        btn_frame.pack(padx=16, pady=8, fill="x")
+
+        def set_current():
+            self._cfg["default_root"] = self.root_var.get()
+            save_config(self._cfg)
+            cur_lbl.configure(
+                text=f"Actual: {self.root_var.get()}",
+                text_color=C["accent"])
+            self._set_status("Ruta predeterminada guardada")
+
+        def browse_new():
+            picker = FolderPicker(
+                master=win,
+                title="Seleccionar ruta predeterminada",
+                subtitle="Esta carpeta se abrira automaticamente al iniciar la app",
+                ok_label="Guardar como predeterminada",
+                initial_dir=cur if cur and Path(cur).exists() else str(Path.home()),
+            )
+            chosen, _ = picker.show()
+            if chosen:
+                self._cfg["default_root"] = chosen
+                save_config(self._cfg)
+                self.root_var.set(chosen)
+                cur_lbl.configure(text=f"Actual: {chosen}", text_color=C["accent"])
+                self._reload()
+                self._set_status("Ruta predeterminada guardada")
+
+        def clear_default():
+            self._cfg.pop("default_root", None)
+            save_config(self._cfg)
+            cur_lbl.configure(text="Actual: (ninguna)", text_color=C["text_muted"])
+            self._set_status("Ruta predeterminada eliminada -- te preguntara al iniciar")
+
+        ctk.CTkButton(btn_frame, text="Usar ruta actual del arbol",
+                      height=34, font=ctk.CTkFont(size=11),
+                      command=set_current).pack(side="left", padx=4)
+        ctk.CTkButton(btn_frame, text="Elegir otra carpeta",
+                      height=34, font=ctk.CTkFont(size=11),
+                      fg_color=C["bg_item"], hover_color=C["bg_hover"],
+                      command=browse_new).pack(side="left", padx=4)
+        ctk.CTkButton(btn_frame, text="Quitar predeterminada",
+                      height=34, font=ctk.CTkFont(size=11),
+                      fg_color=C["red_dim"], hover_color=C["red_hover"],
+                      text_color=C["red"],
+                      command=clear_default).pack(side="left", padx=4)
+        ctk.CTkButton(btn_frame, text="Cerrar",
+                      height=34, font=ctk.CTkFont(size=11),
+                      fg_color=C["bg_hover"], hover_color=C["border"],
+                      command=win.destroy).pack(side="right", padx=4)
+
+    def _safe_grab_win(self, win):
+        try:
+            win.grab_set()
+        except Exception:
+            pass
+
     # ── Lista negra ──────────────────────────────────────────────────
 
     def _bl_label(self) -> str:
@@ -956,22 +1298,18 @@ class ContextTreeApp(ctk.CTk):
         return f"Lista negra ({n})" if n > 0 else "Lista negra"
 
     def _on_blacklist_changed(self, _=None):
-        """Llamado cuando el arbol agrega algo a la lista negra por click derecho."""
         self.blacklist = self.tree_w.blacklist
         self.bl_btn.configure(text=self._bl_label())
         self._rebuild_index()
-        self._set_status(
-            f"[x] Bloqueado: {len(self.blacklist)} entradas en lista negra")
+        self._set_status(f"[x] Bloqueado: {len(self.blacklist)} entradas en lista negra")
 
     def _open_blacklist_manager(self):
-        def on_save(new_bl: set[str]):
+        def on_save(new_bl: set):
             self.blacklist = new_bl
             self.tree_w.set_blacklist(new_bl)
             self.bl_btn.configure(text=self._bl_label())
             self._rebuild_index()
-            self._set_status(
-                f"Lista negra: {len(new_bl)} entradas")
-
+            self._set_status(f"Lista negra: {len(new_bl)} entradas")
         BlacklistManager(self, self.blacklist, on_save)
 
     # ── Indice / navegacion ──────────────────────────────────────────
@@ -1002,32 +1340,36 @@ class ContextTreeApp(ctk.CTk):
             self._set_status(f">> {file_path.name}   ->   {file_path.parent}")
         else:
             self._set_status(
-                f"WARN: {file_path.name} no encontrado -- en lista negra o recarga con <->?")
+                f"WARN: {file_path.name} no encontrado -- en lista negra o recarga con ...")
 
     # ── Arbol ────────────────────────────────────────────────────────
 
     def _browse_root(self):
-        """Abre explorador de carpetas para elegir la raiz del proyecto."""
         current = self.root_var.get()
         initial = current if Path(current).exists() else str(Path.home())
-        chosen = filedialog.askdirectory(
+        picker = FolderPicker(
+            master=self,
             title="Seleccionar carpeta del proyecto",
-            initialdir=initial,
-            mustexist=True
+            subtitle="Elige la carpeta raiz del proyecto que quieres explorar",
+            ok_label="Cargar proyecto",
+            initial_dir=initial,
         )
+        chosen, _ = picker.show()
         if chosen:
             self.root_var.set(chosen)
             self._reload()
 
     def _browse_outdir(self):
-        """Abre explorador de carpetas para elegir el directorio de salida."""
         current = self.out_dir.get()
         initial = current if Path(current).exists() else str(Path.home())
-        chosen = filedialog.askdirectory(
-            title="Seleccionar carpeta de destino para los .txt",
-            initialdir=initial,
-            mustexist=False
+        picker = FolderPicker(
+            master=self,
+            title="Seleccionar carpeta de destino",
+            subtitle="Elige donde se guardaran los archivos .txt generados",
+            ok_label="Usar esta carpeta",
+            initial_dir=initial,
         )
+        chosen, _ = picker.show()
         if chosen:
             self.out_dir.set(chosen)
             self._set_status(f"Directorio de salida: {chosen}")
@@ -1072,7 +1414,6 @@ class ContextTreeApp(ctk.CTk):
         self._set_status("Generando...")
         self.gen_btn.configure(state="disabled")
         bl = set(self.blacklist)
-
         def w():
             try:
                 content, files = generate_content(paths, bl)
@@ -1080,12 +1421,12 @@ class ContextTreeApp(ctk.CTk):
                 lines = content.count("\n")
                 kb = of.stat().st_size / 1024
                 tk_est = len(content) // 4
-                self.after(0, lambda: self._after_gen(content, files, of, lines, kb, tk_est))
+                self.after(0, lambda: self._after_gen(
+                    content, files, of, lines, kb, tk_est))
             except Exception as e:
                 self.after(0, lambda: self._set_status(f"ERROR: {e}"))
             finally:
                 self.after(0, lambda: self.gen_btn.configure(state="normal"))
-
         threading.Thread(target=w, daemon=True).start()
 
     def _after_gen(self, content, files, of, lines, kb, tk_est):
@@ -1105,7 +1446,6 @@ class ContextTreeApp(ctk.CTk):
             return
         self._set_status("Copiando...")
         bl = set(self.blacklist)
-
         def w():
             try:
                 content, files = generate_content(paths, bl)
@@ -1118,7 +1458,6 @@ class ContextTreeApp(ctk.CTk):
                     f"Copiado: {len(files)} archivos . ~{tk_est:,} tokens . {kb:.1f} KB"))
             except Exception as e:
                 self.after(0, lambda: self._set_status(f"ERROR: {e}"))
-
         threading.Thread(target=w, daemon=True).start()
 
     def _bash(self):
@@ -1128,12 +1467,11 @@ class ContextTreeApp(ctk.CTk):
         name = self.out_name.get().strip() or "contexto"
         of = Path(self.out_dir.get().strip()) / f"{name}.txt"
         cmd = generate_bash_command(paths, of)
-
         win = ctk.CTkToplevel(self)
         win.title("Comando Bash")
         win.geometry("860x340")
         win.configure(fg_color=C["bg_dark"])
-        self.after(50, lambda: _safe_grab(win))
+        win.after(100, lambda: self._safe_grab_win(win))
         ctk.CTkLabel(win, text="Comando bash equivalente",
                      font=ctk.CTkFont(size=13, weight="bold"),
                      text_color=C["text"]).pack(padx=14, pady=(14, 4), anchor="w")
@@ -1144,13 +1482,11 @@ class ContextTreeApp(ctk.CTk):
         txt.pack(fill="both", expand=True, padx=14, pady=4)
         txt.insert("1.0", cmd)
         txt.configure(state="disabled")
-
         def cp():
             self.clipboard_clear()
             self.clipboard_append(cmd)
             self.update()
             btn.configure(text="Copiado!")
-
         btn = ctk.CTkButton(win, text="Copiar comando",
                              command=cp, height=36, font=ctk.CTkFont(size=12))
         btn.pack(padx=14, pady=(4, 14))
@@ -1160,6 +1496,12 @@ class ContextTreeApp(ctk.CTk):
         self.update_idletasks()
 
 
+# ─── Entry point ─────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
-    app = ContextTreeApp()
+    initial_root = ask_initial_path()
+    if initial_root is None:
+        # Usuario cancelo el dialogo de seleccion
+        raise SystemExit(0)
+    app = ContextTreeApp(initial_root)
     app.mainloop()
