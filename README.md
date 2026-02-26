@@ -1,138 +1,56 @@
-# Context Tree
+# Generador de Contexto para Proyectos
 
-Herramienta de escritorio para generar archivos de contexto para IAs (Claude, ChatGPT, etc.) a partir de tu proyecto. 
-En vez de copiar archivos uno por uno, seleccionas carpetas y archivos desde un explorador visual y generates un `.txt` listo para pegar.
+Esta herramienta permite cargar un proyecto, seleccionar archivos específicos y generar un archivo consolidado de texto ideal para ser usado como contexto en modelos de lenguaje (LLMs).
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![CustomTkinter](https://img.shields.io/badge/UI-CustomTkinter-informational)
-![Linux](https://img.shields.io/badge/OS-Linux-lightgrey)
-
----
-
-## El problema que resuelve
-
-Cuando trabajas con una IA en un proyecto de codigo, necesitas darle contexto: modelos, vistas, tipos, servicios, etc. 
-El metodo manual es abrir cada archivo, copiar el contenido y pegarlo. Con proyectos grandes esto es lento y propenso a errores.
-
-**Context Tree** te da un explorador visual de tu proyecto donde seleccionas exactamente lo que quieres incluir y genera el contexto en un click.
-
----
-
-## Instalacion
-
-**Requisitos:**
-
-sudo apt install python3-tk
-pip install customtkinter
-
-**Clonar y ejecutar:**
-
-git clone https://github.com/tu-usuario/context-tree.git
-cd context-tree
-python3 context_tree.py
-
-
-**Alias opcional** (para llamarlo desde cualquier lugar):
-
-Con un editor de texto abrir el archivo ./bashrc que se encuentra oculto en la caperta principal de usuario
-
-# Agregar al final de ~/.bashrc
-alias contree='python3 ~/ruta/context-tree/context_tree.py'
-
-# Aplicar cambios ingresando en la terminal:
-source ~/.bashrc
-
-# Usar en la terminal el siguiente comando para inciar el programa
-contree
-```
-
----
-
-## Uso
+## Guía de Uso
 
 ### 1. Cargar el proyecto
+Ingresa la ruta raíz de tu proyecto en el campo superior izquierdo y presiona el botón **Cargar**. 
+El árbol de archivos se generará automáticamente, omitiendo carpetas irrelevantes como `node_modules`, `__pycache__`, `.git`, `dist`, entre otras.
 
-Escribe la ruta raiz de tu proyecto en el campo superior izquierdo y presiona **Cargar**. 
-El arbol se popula automaticamente ignorando carpetas como `node_modules`, `__pycache__`, `.git`, `dist`, etc.
+### 2. Selección de archivos
+Navegar y seleccionar archivos es intuitivo:
+- **Click en un archivo**: Lo marca o desmarca con `[x]`.
+- **Click en una carpeta**: Selecciona o deselecciona toda la carpeta de forma recursiva.
+- **Click en la flecha (▸)**: Expande o colapsa el directorio sin alterar la selección actual.
 
-### 2. Seleccionar archivos
+### 3. Búsqueda rápida
+Existen dos métodos para localizar archivos sin navegar manualmente:
+- **`Ctrl + P` (Command Palette)**: Al estilo VSCode. Escribe parte del nombre, navega con las flechas y presiona `Enter` para saltar al archivo en el árbol.
+- **Panel lateral**: Buscador permanente con resultados en tiempo real. Haz **doble click** en un resultado para desplazarte automáticamente hasta el archivo.
 
-- **Click en un archivo** — lo marca con `[x]`
-- **Click en una carpeta** — marca toda la carpeta recursivamente
-- **Click en la flecha** — solo expande/colapsa, no selecciona
+> **Nota:** En ambos casos, el sistema resalta el archivo para que decidas si incluirlo con un click, pero no lo marca automáticamente.
 
-### 3. Buscar archivos rapido
+### 4. Generación del contexto
+Una vez seleccionado el código, utiliza el panel derecho para procesarlo. Verás una estimación previa de **tokens, número de archivos, líneas y peso en KB**.
 
-Dos formas de buscar sin navegar el arbol manualmente:
+| Botón | Acción |
+| :--- | :--- |
+| **Generar .txt** | Guarda el contenido en `~/textos_intranet/[nombre_del_archivo].txt` |
+| **Copiar** | Copia el contenido directamente al portapapeles |
+| **Bash** | Muestra el comando bash equivalente para obtener el mismo resultado |
 
-- **`Ctrl+P`** — abre el Command Palette (estilo VSCode). Escribe parte del nombre, navega con flechas, Enter para ir al archivo en el arbol
-- **Panel lateral** — busqueda permanente con resultados en tiempo real. Doble click en un resultado para navegar al archivo en el arbol
+### 5. Gestión de Lista Negra (Blacklist)
+Puedes excluir archivos o carpetas permanentemente para que no aparezcan en futuras cargas:
+- **Click derecho** sobre cualquier ítem → Selecciona `[BLOQUEAR] Agregar a lista negra`. El elemento desaparecerá inmediatamente.
+- **Botón "Lista negra (N)"**: Ubicado en el footer, permite ver todos los elementos bloqueados y eliminarlos de la lista si es necesario.
 
-En ambos casos, el arbol **salta al archivo y lo resalta** sin marcarlo automaticamente — tu decides si lo incluyes con un click.
-
-### 4. Generar el contexto
-
-Con los archivos seleccionados, en el panel derecho:
-
-| Boton | Accion |
-|-------|--------|
-| **Generar .txt** | Guarda el contenido en `~/textos_intranet/nombre.txt` |
-| **Copiar** | Copia el contenido directo al portapapeles |
-| **Bash** | Muestra el comando bash equivalente |
-
-El panel muestra una estimacion de tokens, numero de archivos, lineas y peso en KB antes de generar.
-
-### 5. Lista negra
-
-Para excluir archivos o carpetas permanentemente del arbol:
-
-- **Click derecho** sobre cualquier item → `[BLOQUEAR] Agregar a lista negra` — desaparece del arbol inmediatamente
-- **Boton "Lista negra (N)"** en el footer — abre el panel de gestion donde puedes ver todo lo bloqueado y quitar entradas
-
-La lista negra se guarda en `~/textos_intranet/.blacklist.json` y persiste entre sesiones.
+*La lista negra se guarda en `~/textos_intranet/.blacklist.json` y persiste entre sesiones.*
 
 ---
 
 ## Archivos ignorados por defecto
 
-**Carpetas:**
+Para optimizar el rendimiento y la limpieza del contexto, se ignoran:
+
+**Carpetas:**  
 `node_modules`, `__pycache__`, `.git`, `env`, `dist`, `migrations`, `.next`, `build`, `.venv`, `media`
 
-**Extensiones:**
+**Extensiones:**  
 `.pyc`, `.zip`, `.png`, `.jpg`, `.jpeg`, `.svg`, `.ico`, `.woff`, `.woff2`, `.ttf`, `.map`, `.lock`
 
 ---
 
-## Estructura del output
+## Estructura del Output
 
-Cada archivo seleccionado se concatena con un header identificador:
-
-```
-==>> ARCHIVO: /ruta/completa/al/archivo.py
-------------------------------------------------------------
-# contenido del archivo
-...
-
-==>> ARCHIVO: /ruta/completa/otro/archivo.ts
-------------------------------------------------------------
-// contenido del archivo
-...
-```
-
----
-
-## Notas para Linux
-
-Si el programa no arranca, verifica que tienes `python3-tk` instalado:
-
-```bash
-sudo apt install python3-tk
-```
-
-Si ves errores de `LC_ALL` o locale, no hay problema — la app esta disenada para funcionar con `LC_ALL=POSIX`.
-
----
-
-## Licencia
-
-MIT
+El resultado final concatena los archivos seleccionados, separándolos con un encabezado claro que indica la ruta del archivo, facilitando la lectura para el usuario o el análisis por parte de una IA.
