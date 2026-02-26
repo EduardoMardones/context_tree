@@ -22,39 +22,57 @@ El método manual es abrir cada archivo, copiar el contenido y pegarlo. Con proy
 
 ### Requisitos:
 
-\`\`\`bash
+*Los siguientes comandos estan pensados para una distribución de Debian, como Ubuntu o Linux Mint, si se 
+utiliza otra dsitribución es necesario cambias el gestor de paquete apt por otro.
+
+En la terminal de linux escribe los siguientes comandos:
+
 sudo apt install python3-tk
 pip install customtkinter
-\`\`\`
+
 
 ### Clonar y ejecutar:
+*Los siguientes comandos son spara arrancar el programa
 
-\`\`\`bash
+
 git clone https://github.com/tu-usuario/context-tree.git
 cd context-tree
 python3 context_tree.py
-\`\`\`
+
 
 ### Alias opcional (para llamarlo desde cualquier lugar):
+Por ejemplo yo le puse el nombre "contree", si escribo ese comando en la terminal independiente de la
+ruta donde me encuentre, se abrirá el programa, eso es lo que haremos ahora:
 
-Con un editor de texto, abre el archivo \`.bashrc\` que se encuentra oculto en la carpeta principal de usuario:
+Con un editor de texto, abre el archivo .bashrc que se encuentra oculto en la carpeta principal de usuario:
 
-\`\`\`bash
-# Agregar al final de ~/.bashrc
+Si usamos el editar nano el comando seria:
+
+cd ~
+nano .bashrc
+
+Una vez abierto el editor de texto agregamos la siguiente linea al final del texto:
+
 alias contree='python3 ~/ruta/context-tree/context_tree.py'
-\`\`\`
+
+luego para cerrar nano se usan los siguientes comandos:
+
+Presiona Ctrl + O (es la letra O, de WriteOut).
+Verás que abajo pregunta el nombre del archivo. Presiona Enter para confirmar.
+
+Presiona Ctrl + X.(para cerrar el editor)
+
 
 Aplica los cambios ingresando en la terminal:
 
-\`\`\`bash
+
 source ~/.bashrc
-\`\`\`
+
 
 Ahora puedes usar el siguiente comando para iniciar el programa:
 
-\`\`\`bash
 contree
-\`\`\`
+
 
 ---
 
