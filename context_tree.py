@@ -7,6 +7,11 @@ v4: Lista negra con click derecho + panel de gestion + persistencia JSON
 import customtkinter as ctk
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
+try:
+    from PIL import Image, ImageTk
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
 import os
 import json
 import threading
@@ -1043,6 +1048,7 @@ class ContextTreeApp(ctk.CTk):
         self.geometry("1380x820")
         self.minsize(1000, 640)
         self.configure(fg_color=C["bg_dark"])
+        self._set_icon()
         self._file_index = []
         self.blacklist = load_blacklist()
         self._cfg = load_config()
@@ -1050,6 +1056,29 @@ class ContextTreeApp(ctk.CTk):
         self._build_ui(initial_root)
         self.bind("<Control-p>", self._open_palette)
         self.bind("<Control-P>", self._open_palette)
+
+    def _set_icon(self):
+        """Carga el icono de la ventana desde contree-logo.png junto al script."""
+        if not HAS_PIL:
+            return
+        try:
+            import sys
+            # Buscar el logo junto al script o en el directorio actual
+            script_dir = Path(sys.argv[0]).parent.resolve()
+            candidates = [
+                script_dir / "contree-logo.png",
+                script_dir / "contree-logo.jpg",
+                Path("contree-logo.png"),
+                Path("contree-logo.jpg"),
+            ]
+            for logo_path in candidates:
+                if logo_path.exists():
+                    img = Image.open(logo_path).resize((256, 256), Image.LANCZOS)
+                    self._icon_img = ImageTk.PhotoImage(img)
+                    self.iconphoto(True, self._icon_img)
+                    return
+        except Exception:
+            pass   # Si falla, la app sigue funcionando sin icono
 
     def _build_ui(self, initial_root: str):
         self.grid_columnconfigure(0, weight=5)

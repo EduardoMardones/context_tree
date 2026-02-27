@@ -28,6 +28,7 @@ utiliza otra dsitribución es necesario cambias el gestor de paquete apt por otr
 En la terminal de linux escribe los siguientes comandos:
 
 sudo apt install python3-tk
+sudo apt install python3-pil.imagetk
 pip install customtkinter
 
 
