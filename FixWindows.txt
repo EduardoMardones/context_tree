@@ -1,0 +1,8 @@
+#EN CASO DE QUE ALGO FALLE EN WINDOWS, CORRE EL SIGUIENTE COMANDO ENTERO EN LA TERMINAL
+
+$file = "$env:USERPROFILE\.context-tree\context_tree.py"
+$content = Get-Content $file -Raw -Encoding UTF8
+$content = $content -replace '        self\._tv\.bind\("<<TreeviewSelect>>", self\._on_tv_select\)\r?\n        self\._populate_tv\(self\._current\)', '        self._tv.bind("<<TreeviewSelect>>", self._on_tv_select)'
+$content = $content -replace '(        self\._sel_lbl\.grid\(row=0, column=1, padx=12, sticky="e"\))', "$1`r`n        self._populate_tv(self._current)"
+[System.IO.File]::WriteAllText($file, $content, [System.Text.Encoding]::UTF8)
+Write-Host "OK - fix aplicado"
