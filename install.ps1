@@ -10,15 +10,15 @@ $INSTALL_DIR = "$env:USERPROFILE\.context-tree"
 $REPO_URL    = "https://raw.githubusercontent.com/EduardoMardones/context_tree/main/context_tree.py"
 $BIN_NAME    = "contree"
 
-function Write-Step  { param($msg) Write-Host "▶  $msg" -ForegroundColor Cyan }
-function Write-Ok    { param($msg) Write-Host "✔  $msg" -ForegroundColor Green }
-function Write-Warn  { param($msg) Write-Host "⚠  $msg" -ForegroundColor Yellow }
-function Write-Fail  { param($msg) Write-Host "✖  $msg" -ForegroundColor Red; exit 1 }
+function Write-Step  { param($msg) Write-Host ">>  $msg" -ForegroundColor Cyan }
+function Write-Ok    { param($msg) Write-Host "OK  $msg" -ForegroundColor Green }
+function Write-Warn  { param($msg) Write-Host "!!  $msg" -ForegroundColor Yellow }
+function Write-Fail  { param($msg) Write-Host "ERR $msg" -ForegroundColor Red; exit 1 }
 
 Write-Host ""
-Write-Host "╔══════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║       Context Tree  —  Instalador    ║" -ForegroundColor Cyan
-Write-Host "╚══════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "==========================================" -ForegroundColor Cyan
+Write-Host "      Context Tree  --  Instalador       " -ForegroundColor Cyan
+Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 
 # ── 1. Verificar Python 3.10+ ────────────────────────────────────────────────
@@ -92,9 +92,9 @@ if ($currentPath -notlike "*$INSTALL_DIR*") {
 
 # ── 8. Listo ──────────────────────────────────────────────────────────────────
 Write-Host ""
-Write-Host "╔══════════════════════════════════════════╗" -ForegroundColor Green
-Write-Host "║   ✔  Context Tree instalado con éxito   ║" -ForegroundColor Green
-Write-Host "╚══════════════════════════════════════════╝" -ForegroundColor Green
+Write-Host "==========================================" -ForegroundColor Green
+Write-Host "   OK  Context Tree instalado con exito  " -ForegroundColor Green
+Write-Host "==========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Abre una terminal NUEVA y ejecuta:" -ForegroundColor White
 Write-Host "    contree" -ForegroundColor Cyan

@@ -23,7 +23,7 @@ El método manual es abrir cada archivo, copiar el contenido y pegarlo. Con proy
 
 ### Requisito único: Python 3.10+
 
-- **Linux**: normalmente ya viene instalado. Verificá con `python3 --version`.
+- **Linux**: normalmente ya viene instalado. Verifica con `python3 --version`.
 - **Windows**: descargalo desde [python.org](https://www.python.org/downloads/) — al instalarlo, **marcá la opción "Add Python to PATH"**.
 
 ---
@@ -43,7 +43,7 @@ El script automáticamente:
 - Instala `customtkinter` y `Pillow` dentro del entorno virtual
 - Agrega el comando `contree` a tu PATH
 
-Luego abrí una terminal nueva y ejecutá:
+Luego abre una terminal nueva y ejecuta:
 
 ```bash
 contree
@@ -59,7 +59,7 @@ cd context_tree
 .\install.ps1
 ```
 
-> Si ves un error de *"ejecución de scripts deshabilitada"*, ejecutá esto primero en PowerShell como administrador:
+> Si ves un error de *"ejecución de scripts deshabilitada"*, ejecuta esto primero en PowerShell como administrador:
 > ```powershell
 > Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 > ```
@@ -80,7 +80,7 @@ contree
 ## Uso
 
 ### 1. Cargar el proyecto
-Al abrir el programa aparece un selector de carpeta. Elegí la raíz de tu proyecto y presioná **Confirmar**.
+Al abrir el programa aparece un selector de carpeta. Elige la raíz de tu proyecto y presiona **Confirmar**.
 El árbol se popula automáticamente ignorando carpetas como `node_modules`, `__pycache__`, `.git`, `dist`, etc.
 
 ### 2. Seleccionar archivos
@@ -90,10 +90,10 @@ El árbol se popula automáticamente ignorando carpetas como `node_modules`, `__
 
 ### 3. Buscar archivos rápido
 Dos formas de buscar sin navegar el árbol manualmente:
-- **`Ctrl+P`**: abre el *Command Palette* (estilo VSCode). Escribí parte del nombre, navegá con flechas y presioná `Enter` para ir al archivo en el árbol.
+- **`Ctrl+P`**: abre el *Command Palette* (estilo VSCode). Escribe parte del nombre, navega con flechas y presiona `Enter` para ir al archivo en el árbol.
 - **Panel lateral**: búsqueda permanente con resultados en tiempo real. Doble click en un resultado para navegar al archivo en el árbol.
 
-En ambos casos, el árbol **salta al archivo y lo resalta** sin marcarlo automáticamente; vos decidís si lo incluís con un click.
+En ambos casos, el árbol **salta al archivo y lo resalta** sin marcarlo automáticamente; tu decides sí lo incluyes con un click.
 
 ### 4. Generar el contexto
 Con los archivos seleccionados, en el panel derecho:
@@ -109,7 +109,7 @@ El panel muestra una estimación de tokens, número de archivos, líneas y peso 
 ### 5. Lista negra
 Para excluir archivos o carpetas permanentemente del árbol:
 - **Click derecho** sobre cualquier ítem → `[BLOQUEAR] Agregar a lista negra`: desaparece del árbol inmediatamente.
-- **Botón "Lista negra (N)"** en el footer: abre el panel de gestión donde podés ver todo lo bloqueado y quitar entradas.
+- **Botón "Lista negra (N)"** en el footer: abre el panel de gestión donde puedes ver todo lo bloqueado y quitar entradas.
 
 La lista negra se guarda en `~/textos_intranet/.blacklist.json` y persiste entre sesiones.
 
@@ -146,13 +146,13 @@ Cada archivo seleccionado se concatena con un header identificador:
 ```bash
 rm -rf ~/.context-tree
 ```
-Luego eliminá la línea `# Context Tree` y la siguiente de tu `~/.bashrc` o `~/.zshrc`.
+Luego elimina la línea `# Context Tree` y la siguiente de tu `~/.bashrc` o `~/.zshrc`.
 
 ### Windows
 ```powershell
 Remove-Item -Recurse -Force "$env:USERPROFILE\.context-tree"
 ```
-Y eliminá la entrada del PATH en: `Panel de control → Variables de entorno`.
+Y elimina la entrada del PATH en: `Panel de control → Variables de entorno`.
 
 ---
 
