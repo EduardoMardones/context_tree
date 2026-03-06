@@ -1,0 +1,18 @@
+CORRE EL SIGUIENTE COMANDO COMPLETO EN LA TERMINAL
+
+python3 -c "
+import re
+f = open('$HOME/.context-tree/context_tree.py', 'r', encoding='utf-8')
+c = f.read()
+f.close()
+c = c.replace(
+    '        self._tv.bind(\"<<TreeviewSelect>>\", self._on_tv_select)\n        self._populate_tv(self._current)',
+    '        self._tv.bind(\"<<TreeviewSelect>>\", self._on_tv_select)'
+)
+c = c.replace(
+    '        self._sel_lbl.grid(row=0, column=1, padx=12, sticky=\"e\")',
+    '        self._sel_lbl.grid(row=0, column=1, padx=12, sticky=\"e\")\n        self._populate_tv(self._current)'
+)
+open('$HOME/.context-tree/context_tree.py', 'w', encoding='utf-8').write(c)
+print('OK - fix aplicado')
+"
