@@ -249,6 +249,7 @@ class FolderPicker:
                                       font=ctk.CTkFont(family="Consolas", size=10),
                                       text_color=C["text_muted"])
         self._sel_lbl.grid(row=0, column=1, padx=12, sticky="e")
+        self._populate_tv(self._current)
 
         btn_frame = ctk.CTkFrame(footer, fg_color="transparent")
         btn_frame.grid(row=0, column=2, padx=16, pady=10)
